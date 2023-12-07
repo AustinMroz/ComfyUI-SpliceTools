@@ -2,7 +2,6 @@ import torch
 
 import torch.nn.functional as F
 from comfy.sample import prepare_mask
-from comfy_extras.nodes_post_processing import gaussian_kernel
 
 class LogSigmas:
     """For testing, simply prints the input sigmas"""
@@ -20,23 +19,30 @@ class LogSigmas:
         print(sigmas)
         return ()
 
-#Blur functions shameless stolen borrowed comfy_extras/nodes_post_processing
+#Blur functions shameless borrowed from comfy_extras/nodes_post_processing
 #with slight modifications for latent dimensions
+def gaussian_kernel(sigma, size=5):
+    maxl = size // 2
+    x, y = torch.meshgrid(torch.linspace(-maxl, maxl, size), torch.linspace(-maxl, maxl, size), indexing="ij")
+    d = (x * x + y * y) / (2 * sigma * sigma)
+    mask =  torch.exp(-d) / (2 * torch.pi * sigma * sigma)
+    return mask / mask.sum()
 
-def gaussian_blur(latents, kernel, radius=20):
+
+
+
+def gaussian_blur(latents, kernel, radius=5):
     padded_latents = F.pad(latents, [radius]*4, 'reflect')
     blurred = F.conv2d(padded_latents, kernel, padding=(radius*2+1) // 2, groups=4)
     return blurred[:, :, radius:-radius, radius:-radius]
 
 class SpliceLatents:
-    """Performs a fast approximate splice of 2 latents by bluring.
-    Intended to eventually automatically calculate blur strength from sigmas"""
+    """Performs a fast approximate splice of 2 latents by bluring."""
     @classmethod
     def INPUT_TYPES(s):
         #These numbers are likely flawed
-        return {"required": {"mult": ("FLOAT", {"default": 1.0, "precision": 3,
-                                                "step": 0.1, "round": .001}),
-                             "size": ("INT", {"default": 4, "min": 1, "step": 1}),
+        return {"required": {"sigmas": ("SIGMAS",),
+                             "radius": ("INT", {"default": 4, "min": 1, "step": 1}),
                              "wetness": ("FLOAT", {"default": 1.0, "max": 1,
                                                    "min": 0, "precision": 3,
                                                    "step": 0.1, "round": .01}),
@@ -48,7 +54,7 @@ class SpliceLatents:
     RETURN_TYPES = ("LATENT",)
     CATEGORY = "latent/advanced"
 
-    def splice_latents(s, mult, size, texture_override, wetness=1.0, lower=None, upper=None):
+    def splice_latents(s, sigmas, radius, texture_override, wetness=1.0, lower=None, upper=None):
         #TODO: Find solution to prevent errors when nodes are muted in workflow
         if lower is None and upper is None:
             raise "lower and upper can't both be none"
@@ -60,14 +66,13 @@ class SpliceLatents:
             upper = torch.zeros_like(lower)
         else:
             upper = upper['samples']
-        radius = size
         length = radius * 2 + 1
-        #for 1.5 channel 3 is texture, Its feasible to
+        #for 1.5, channel 3 is texture. Its feasible to
         #create a kernel that blurs channels [0,1,3] and zeros 2
         #this conceptually delegates sub-pixel texture to upper always,
         #but is less viable for mixed configuration
         #further experimentation is needed
-        mask = gaussian_kernel(length, mult, device=lower.device)
+        mask = gaussian_kernel(sigmas[-1], length)
         kernel = torch.stack((mask, mask, mask, mask)).unsqueeze(1)
 
         lower_b = gaussian_blur(lower, kernel, radius)
@@ -95,7 +100,7 @@ class SpliceDenoised:
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "splice_denoised"
-    CATEGORY = "_for_testing"
+    CATEGORY = "latent/advanced"
 
     def splice_denoised(self, noised_latent, denoised_latent, donor_latent):
         #Partial mask support for donor latent
