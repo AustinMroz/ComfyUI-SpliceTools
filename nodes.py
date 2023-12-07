@@ -88,6 +88,72 @@ class SpliceLatents:
 
         return ({"samples": out},)
 
+class TemporalSplice:
+    """Areas of low movement are passed from lower"""
+    @classmethod
+    def INPUT_TYPES(s):
+        #These numbers are likely flawed
+        return {"required": {"sigma": ("FLOAT", {"default": 1.0, "step": .01, "min": 0}),
+                             "wetness": ("FLOAT", {"default": 1.0, "max": 1,
+                                                   "min": 0, "precision": 3,
+                                                   "step": 0.1, "round": .01}),},
+                "optional": {"lower": ("LATENT",),
+                             "upper": ("LATENT",)}}
+    FUNCTION = "temporal_splice"
+    RETURN_TYPES = ("LATENT",)
+    CATEGORY = "latent/advanced"
+    def temporal_splice(s, sigma, wetness, lower=None, upper=None):
+        if lower is None and upper is None:
+            raise "lower and upper can't both be none"
+        if lower is None:
+            lower = torch.zeros_like(upper['samples'])
+        else:
+            lower = lower['samples']
+        if upper is None:
+            upper = torch.zeros_like(lower)
+        else:
+            upper = upper['samples']
+        #Ensure odd with no overlap
+        length = max(lower.shape[0], upper.shape[0])
+        radius = (length + 1) // 2
+        t = torch.linspace(-radius, radius, 2 * radius + 1)
+        d = torch.exp(-t*t/(2*sigma*sigma))
+        mask = d / d.sum()
+        kernel = torch.stack([mask] * 4).unsqueeze(1)
+        def temporal_blur(tensor, kernel, radius):
+            #latent is B C H W, but HW C B is desired
+            tensor = tensor.permute((3,2,1,0))
+            shape = tensor.shape
+            tensor = tensor.reshape((shape[0]*shape[1],shape[2],shape[3]))
+            tensor = F.pad(tensor, [radius]*2, 'circular')
+            tensor = F.conv1d(tensor, kernel, padding=(radius*2+1) // 2, groups=4)
+            tensor = tensor[:,:,radius:-radius]
+
+            #Test code to force full blur
+            #tensor = tensor.mean(dim=3).unsqueeze(3).repeat(1,1,1,shape[3])
+
+            tensor = tensor.reshape(shape)
+            tensor = tensor.permute((3,2,1,0))
+            return tensor
+        if len(lower) == 1:
+            lower_b = lower
+        else:
+            if len(lower) < length //2:
+                lower = lower.repeat(2,1,1,1)
+            lower_b = temporal_blur(lower, kernel, radius)
+        if len(upper) == 1:
+            upper_b = upper
+        else:
+            if len(upper) < radius:
+                upper = upper.repeat(2,1,1,1)
+            upper_b = temporal_blur(upper, kernel, radius)
+        upper_e = upper - upper_b
+        lower_out = lower_b * wetness + lower * (1 - wetness)
+        upper_out = upper_e * wetness + upper * (1 - wetness)
+        out = lower_out + upper_out
+        #TODO: copy other items (mask,batch) from inputs? (also splice_latents)
+        return ({"samples": out},)
+
 class SpliceDenoised:
     """A convenience node to splice latents when both noised and denoised outputs exist"""
     @classmethod
@@ -117,6 +183,7 @@ class SpliceDenoised:
 NODE_CLASS_MAPPINGS = {
     "LogSigmas": LogSigmas,
     "SpliceLatents": SpliceLatents,
-    "SpliceDenoised": SpliceDenoised
+    "SpliceDenoised": SpliceDenoised,
+    "TemporalSplice": TemporalSplice
 }
 NODE_DISPLAY_NAME_MAPPINGS = {}
