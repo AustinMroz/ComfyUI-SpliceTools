@@ -2,6 +2,7 @@ import torch
 
 import torch.nn.functional as F
 from comfy.sample import prepare_mask
+from comfy.k_diffusion import sampling
 
 class LogSigmas:
     """For testing, simply prints the input sigmas"""
@@ -18,6 +19,33 @@ class LogSigmas:
     def log_sigmas(self, sigmas):
         print(sigmas)
         return ()
+
+class RerangeSigmas:
+    """Given a set of input sigmas, produce a new set of sigmas that cover the same range"""
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"sigmas": ("SIGMAS",),
+                             "steps": ("INT", {"default": 10, "min": 1})}}
+    FUNCTION = "rerange_sigmas"
+    RETURN_TYPES = ("SIGMAS",)
+    CATEGORY = "sampling/custom_sampling/sigmas"
+    def rerange_sigmas(self, sigmas, steps):
+        assert(len(sigmas)>1)
+        (s_max, s_min) = (sigmas[0], sigmas[-1])
+        full_denoise = False
+        if s_min == 0:
+            assert(len(sigmas)>2)
+            full_denoise = True
+            s_min = sigmas[-2]
+        else:
+            steps+=1
+
+        #TODO: Implement scheduling method with a more uniform distribution
+        sigmas = sampling.get_sigmas_exponential(n=steps, sigma_min=s_min, sigma_max=s_max)
+        if not full_denoise:
+            sigmas = sigmas[:-1]
+        return (sigmas,)
+
 
 #Blur functions shameless borrowed from comfy_extras/nodes_post_processing
 #with slight modifications for latent dimensions
@@ -184,6 +212,7 @@ NODE_CLASS_MAPPINGS = {
     "LogSigmas": LogSigmas,
     "SpliceLatents": SpliceLatents,
     "SpliceDenoised": SpliceDenoised,
-    "TemporalSplice": TemporalSplice
+    "TemporalSplice": TemporalSplice,
+    "RerangeSigmas": RerangeSigmas
 }
 NODE_DISPLAY_NAME_MAPPINGS = {}
