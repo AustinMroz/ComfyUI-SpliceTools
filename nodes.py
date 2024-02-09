@@ -209,10 +209,10 @@ class SpliceDenoised:
         return (out,)
 
 NODE_CLASS_MAPPINGS = {
+    "RerangeSigmas": RerangeSigmas,
     "LogSigmas": LogSigmas,
     "SpliceLatents": SpliceLatents,
     "SpliceDenoised": SpliceDenoised,
-    "TemporalSplice": TemporalSplice,
-    "RerangeSigmas": RerangeSigmas
+    "TemporalSplice": TemporalSplice
 }
 NODE_DISPLAY_NAME_MAPPINGS = {}
