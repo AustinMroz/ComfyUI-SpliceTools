@@ -1,7 +1,7 @@
 import torch
 
 import torch.nn.functional as F
-from comfy.sample import prepare_mask
+from comfy.sampler_helpers import prepare_mask
 from comfy.k_diffusion import sampling
 
 class LogSigmas:
