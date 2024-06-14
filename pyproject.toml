@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-splicetools"
+description = "Experimental utility nodes with a focus on manipulation of noised latents"
+version = "1.0.0"
+license = "LICENSE"
+
+[project.urls]
+Repository = "https://github.com/AustinMroz/ComfyUI-SpliceTools"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-SpliceTools"
+Icon = ""
